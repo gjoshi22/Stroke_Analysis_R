@@ -1,0 +1,598 @@
+---
+title: "Stroke Prediction"
+output: html_document
+date: "2024-03-16"
+---
+
+
+********************Data Importing and descriptive Analysis************************
+
+
+```{r}
+#importing the data
+library(tidyverse)
+library(dplyr)
+
+df <- read.csv("healthcare-dataset-stroke-data.csv", na.strings = "N/A")
+head(df)
+```
+
+```{r}
+#simple preprocessing
+#removing id column
+df <- df[, !(names(df) %in% "id")]
+colnames(df)
+```
+
+
+
+```{r}
+df$ever_married = factor(df$ever_married)
+df$work_type = factor(df$work_type)
+df$Residence_type = factor(df$Residence_type)
+df$smoking_status = factor(df$smoking_status)
+```
+
+```{r}
+
+#added later
+df$hypertension <- as.numeric(factor(df$hypertension))
+df$heart_disease <- as.numeric(factor(df$heart_disease))
+
+```
+
+
+
+
+```{r}
+df <- df[df$gender != "Other", ]
+df$gender = factor(df$gender)
+```
+
+
+```{r}
+#removing row with other- only 1 row for that 
+str(df)
+```
+
+
+#checking for NA values 
+```{r}
+
+na_values <- sum(is.na(df))
+na_values_per_column <- colSums(is.na(df))
+na_values_per_column
+```
+#bmi has 201 na values. Check the distribution to see if mean imputation or meadian imputation should be done
+
+```{r}
+library(ggplot2)
+
+
+# Create density plot
+density_plot <- ggplot(df, aes(x = bmi)) +
+  geom_density(fill = "skyblue", color = "blue", alpha = 0.5) +
+  labs(title = "Density Plot of Bmi",
+       x = "bmi",
+       y = "Density")
+
+# Create histogram
+histogram_plot <- ggplot(df, aes(x = bmi)) +
+  geom_histogram(fill = "skyblue", color = "blue", alpha = 0.5, bins = 30) +
+  labs(title = "Histogram of Bmi",
+       x = "bmi",
+       y = "Frequency")
+
+# Display both plots
+print(density_plot)
+print(histogram_plot)
+```
+
+#right skewed so impute with median
+
+```{r}
+median_bmi <- median(df$bmi, na.rm = TRUE)
+df$bmi[is.na(df$bmi)] <- median_bmi
+```
+
+#Descriptive statistics
+```{r}
+summary(df)
+```
+The summary statistics provided represent data on various attributes for a group of individuals, including gender, age, health conditions, marital status, work type, residence type, average glucose level, body mass index (BMI), smoking status, and stroke occurrence.
+
+The dataset consists of 5,109 individuals, with a gender distribution of 2,994 females and 2,115 males; there are no individuals identified as 'Other'. Age in the dataset ranges from 0.08 to 82 years, with a median age of 45 years, indicating a middle-aged population. In terms of health conditions, 9.748% have hypertension, and 5.402% have heart disease.
+
+Regarding marital status, 3,353 individuals are married, while 1,756 are not. Work type categories include children (687 individuals), government jobs (657), never worked (22), private sector jobs (2,924), and self-employed (819). The individuals are almost evenly split between rural (2,513) and urban (2,596) residence types.
+
+The average glucose level in the group is 106.14 mg/dL, with a range from 55.12 to 271.74 mg/dL. The BMI values range from 10.3 to 97.6, with a mean of 28.86, indicating that the average individual is overweight according to WHO standards.
+
+As for smoking status, the dataset includes 884 individuals who formerly smoked, 1,892 who never smoked, 789 who currently smoke, and 1,544 whose smoking status is unknown. Lastly, the prevalence of stroke in this population is 4.874%, which aligns with the dataset's median and mean values being close to 0, suggesting that the majority of individuals have not experienced a stroke.
+
+**************************Exploratory Data Analysis********************************
+
+```{r}
+
+library(ggplot2)
+
+
+# Create density plot
+density_plot <- ggplot(df, aes(x = avg_glucose_level)) +
+  geom_density(fill = "skyblue", color = "blue", alpha = 0.5) +
+  labs(title = "Density Plot of Average Glucose Level",
+       x = "Average Glucose Level",
+       y = "Density")
+
+# Create histogram
+histogram_plot <- ggplot(df, aes(x = avg_glucose_level)) +
+  geom_histogram(fill = "skyblue", color = "blue", alpha = 0.5, bins = 30) +
+  labs(title = "Histogram of Average Glucose Level",
+       x = "Average Glucose Level",
+       y = "Frequency")
+
+# Display both plots
+print(density_plot)
+print(histogram_plot)
+
+
+```
+
+Bmi vs Glucose level
+```{r}
+
+# Load the ggplot2 library
+library(ggplot2)
+
+# Create the scatter plot
+ggplot(df, aes(x = bmi, y = avg_glucose_level)) +
+  geom_point(color = "skyblue", alpha = 0.6) +  # Add points with color and transparency
+  labs(x = "bmi", y = "Average Glucose Level", title = "Scatter Plot of Bmi vs. Average Glucose Level") +  # Add labels and title
+  theme_minimal() +  # Set minimal theme
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),  # Title customization
+    axis.title = element_text(size = 14),  # Axis label customization
+    axis.text = element_text(size = 12)  # Axis text customization
+  )
+
+
+
+```
+
+
+Age vs stroke Box plot
+```{r}
+
+# Create the box plot
+boxplot_age_vs_stroke <- ggplot(df, aes(x = factor(stroke), y = age, fill = factor(stroke))) +
+  geom_boxplot() +
+  labs(title = "Boxplot of Age by Stroke Status",
+       x = "Stroke Status", y = "Age",
+       fill = "Stroke Status") +
+  scale_fill_manual(values = c("0" = "#4CAF50", "1" = "#F44336")) +  # Custom colors for stroke status
+  theme_minimal()
+
+# Display the box plot
+print(boxplot_age_vs_stroke)
+
+```
+
+
+
+Work type count based on stroke
+```{r}
+
+# Create a dataframe to calculate the total count of each work type and stroke status
+work_type_stroke_count <- df %>%
+  group_by(work_type, stroke) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate(stroke = factor(stroke, levels = c(0, 1), labels = c("No Stroke", "Stroke")))
+
+# Calculate total count of each work type
+total_counts <- work_type_stroke_count %>%
+  group_by(work_type) %>%
+  summarise(total_count = sum(count))
+
+# Create a pie chart
+# Create the pie chart with beautifications
+pie_chart <- ggplot(total_counts, aes(x = "", y = total_count, fill = work_type)) +
+  geom_bar(stat = "identity", width = 1, color = "white") +  # Add white outline to bars
+  coord_polar("y", start = 0) +  # Convert bar plot to pie chart
+  labs(title = "Distribution of Work Types",
+       fill = "Work Type",
+       x = NULL,
+       y = NULL) +  # Remove axis labels
+  theme_void() +  # Remove axis lines and labels
+  scale_fill_manual(values = c("Private" = "#4CAF50", 
+                                "Self-employed" = "#FFC107", 
+                                "Govt_job" = "#2196F3", 
+                                "children" = "#9C27B0", 
+                                "Never_worked" = "#E91E63")) +  # Custom colors for each work type
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),  # Title customization
+    legend.title = element_text(size = 12, face = "bold"),  # Legend title customization
+    legend.text = element_text(size = 10),  # Legend text customization
+    legend.position = "right"  # Legend position
+  )
+
+# Display the beautified pie chart
+print(pie_chart)
+
+
+
+
+```
+
+
+
+```{r}
+
+library(ggplot2)
+
+# Create a dataframe to calculate the total count of each gender and stroke status
+gender_stroke_count <- df %>%
+  group_by(gender, stroke) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate(stroke = factor(stroke, levels = c(0, 1), labels = c("No Stroke", "Stroke")))
+
+# Create the stacked bar plot
+stacked_bar_plot <- ggplot(gender_stroke_count, aes(x = gender, y = count, fill = stroke)) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(title = "Barchart of Stroke Cases by Gender",
+       x = "Gender",
+       y = "Count",
+       fill = "Stroke Status") +
+  scale_fill_manual(values = c("No Stroke" = "skyblue", "Stroke" = "salmon")) +
+  theme_minimal()
+
+# Display the stacked bar plot
+print(stacked_bar_plot)
+
+
+```
+
+
+
+```{r}
+
+library(ggplot2)
+
+# Create a dataframe to calculate the total count of each heart disease status and stroke status
+heart_disease_stroke_count <- df %>%
+  group_by(heart_disease, stroke) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate(stroke = factor(stroke, levels = c(0, 1), labels = c("No Stroke", "Stroke")),
+         heart_disease = factor(heart_disease, levels = c(0, 1), labels = c("No Heart Disease", "Heart Disease")))
+
+# Create the stacked bar plot
+stacked_bar_plot_heart_disease <- ggplot(heart_disease_stroke_count, aes(x = heart_disease, y = count, fill = stroke)) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(title = "Barchart of Stroke Cases by Heart Disease Status",
+       x = "Heart Disease Status",
+       y = "Count",
+       fill = "Stroke Status") +
+  scale_fill_manual(values = c("No Stroke" = "skyblue", "Stroke" = "salmon")) +
+  theme_minimal()
+
+# Display the stacked bar plot
+print(stacked_bar_plot_heart_disease)
+
+
+```
+
+
+
+```{r}
+
+library(ggplot2)
+
+# Create a dataframe to calculate the total count of each ever married status and stroke status
+ever_married_stroke_count <- df %>%
+  group_by(ever_married, stroke) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate(stroke = factor(stroke, levels = c(0, 1), labels = c("No Stroke", "Stroke")),
+         ever_married = factor(ever_married, levels = c("Yes", "No")))
+
+# Create the stacked bar plot
+stacked_bar_plot_ever_married <- ggplot(ever_married_stroke_count, aes(x = ever_married, y = count, fill = stroke)) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(title = "Distribution of Stroke Cases by Ever Married Status",
+       x = "Ever Married Status",
+       y = "Count",
+       fill = "Stroke Status") +
+  scale_fill_manual(values = c("No Stroke" = "skyblue", "Stroke" = "salmon")) +
+  theme_minimal()
+
+# Display the stacked bar plot
+print(stacked_bar_plot_ever_married)
+
+
+```
+
+
+
+
+
+```{r}
+
+# Create a dataframe to calculate the total count of each residence type and stroke status
+residence_type_stroke_count <- df %>%
+  group_by(Residence_type, stroke) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate(stroke = factor(stroke, levels = c(0, 1), labels = c("No Stroke", "Stroke")))
+
+# Create the stacked bar plot
+stacked_bar_plot_residence_type <- ggplot(residence_type_stroke_count, aes(x = Residence_type, y = count, fill = stroke)) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(title = "Distribution of Stroke Cases by Residence Type",
+       x = "Residence Type",
+       y = "Count",
+       fill = "Stroke Status") +
+  scale_fill_manual(values = c("No Stroke" = "skyblue", "Stroke" = "salmon")) +
+  theme_minimal()
+
+# Display the stacked bar plot
+print(stacked_bar_plot_residence_type)
+
+
+```
+
+
+
+```{r}
+
+# Load the required library
+library(corrplot)
+
+# Compute the correlation matrix
+correlation_matrix <- cor(df[, sapply(df, is.numeric)])
+
+# Create the correlation heatmap
+corrplot(correlation_matrix, method = "color", type = "upper", 
+         tl.col = "black", tl.srt = 45, 
+         addrect = 2, order = "hclust", 
+         col = colorRampPalette(c("blue", "white", "red"))(200))
+
+
+```
+
+
+
+
+*************************************OverSampling**********************************
+
+```{r}
+#standardizing the dataset
+library(caret)
+
+# List of numeric columns you want to standardize
+numeric_columns <- c("age", "avg_glucose_level", "bmi")
+
+# Use preProcess to standardize (z-score normalization)
+preproc <- preProcess(df[, numeric_columns], method = c("center", "scale"))
+
+# Standardize the data
+df_standardized <- predict(preproc, df[, numeric_columns])
+
+# Replace the original columns with the standardized data
+df[, numeric_columns] <- df_standardized
+
+```
+
+
+
+
+#checking the class distribution 
+```{r}
+table(df$stroke)
+```
+
+
+#From all of the above analysis, we can see that the dataset is imbalanced. We will balance the dataset through the process of oversampling. 
+
+```{r}
+prop.table(table(df$stroke))
+```
+# The process of oversampling - SMOTE
+```{r}
+library(ROSE)
+library(caret)
+
+#split the data into training and testing set
+set.seed(25) # for reproducibility
+sample_size <- floor(0.75 * nrow(df)) # 75% for training
+train_indices <- sample(seq_len(nrow(df)), size = sample_size)
+
+train_set <- df[train_indices, ]
+test_set <- df[-train_indices, ]
+```
+
+
+```{r}
+train_set$stroke <- factor(train_set$stroke, levels = c(0, 1))
+test_set$stroke <- factor(test_set$stroke, levels = c(0, 1))
+```
+
+
+```{r}
+balanced_train_set <- ovun.sample(stroke ~ ., data = train_set, method = "over")$data
+```
+
+
+The oversampling methodology report describes the utilization of the ovun.sample() function from the ROSE package in R to address class imbalance in a dataset, focusing particularly on balancing the 'stroke' variable. This approach involves taking the original 'train_set' and applying oversampling to augment the minority class. The function is set with method = "over", directing it to increase the minority class's presence by creating synthetic samples that are statistically similar to existing ones, though not identical. The result is the 'balanced_train_set', a modified version of the original dataset with a better balance between classes, aiming to improve the outcomes of predictive modeling by providing a more equitable data foundation. This method is primarily designed to reduce the skewness in class distribution, thus potentially enhancing the performance of subsequent analyses and model training.
+
+
+
+
+***********************************KNN******************************************
+
+```{r}
+
+ctrl <- trainControl(method = "cv", number = 5)
+knn_model <- train(stroke ~ ., data = balanced_train_set, method = "knn", trControl =
+ctrl, preProcess = c("center", "scale"))
+
+```
+
+
+```{r}
+
+final_model <- train(stroke ~ ., data = balanced_train_set, method = "knn", trControl =
+ctrl, preProcess = c("center", "scale"), tuneGrid = data.frame(k =
+knn_model$bestTune$k))
+
+```
+
+
+```{r}
+
+knn_probs <- predict(final_model, newdata = test_set, type = "prob")
+knn.pred <- rep("0", length(test_set$stroke))
+knn.pred[knn_probs[, "1"] > 0.5] <- "1"
+###
+table(knn.pred, test_set$stroke)
+
+```
+
+
+```{r}
+
+mean(knn.pred == test_set$stroke)
+
+```
+
+
+***********************************Random Forest*********************************
+
+```{r}
+
+library(randomForest)
+
+```
+
+
+```{r}
+
+X <- balanced_train_set[, -which(names(balanced_train_set) %in% c("stroke"))]  # Features
+y <- balanced_train_set$stroke  # Target variable
+
+# Fit the Random Forest classifier
+rf_model <- randomForest(x = X, y = y, ntree = 100)
+
+# Print the model summary
+print(rf_model)
+
+```
+
+
+
+
+```{r}
+
+X_new <- test_set[, -which(names(test_set) %in% c("stroke"))]  # Features
+
+# Make predictions using the trained Random Forest model
+predictions <- predict(rf_model, newdata = X_new)
+
+```
+
+
+```{r}
+
+confusionMatrix(predictions, test_set$stroke)
+
+```
+
+```{r}
+
+accuracy <- mean(predictions == test_set$stroke)
+accuracy
+
+```
+
+
+
+************************************Decision Tree*********************************
+
+```{r}
+
+library(rpart)
+
+# Fit the decision tree classifier
+dt_model <- rpart(
+  formula = stroke ~ .,
+  data = balanced_train_set
+)
+
+```
+
+
+
+```{r}
+
+predictions_dt <- predict(dt_model, newdata = test_set, type = "class")
+
+
+```
+
+
+
+```{r}
+
+confusionMatrix(predictions_dt, test_set$stroke)
+
+```
+
+
+
+```{r}
+
+accuracy <- mean(predictions_dt == test_set$stroke)
+accuracy
+
+```
+
+
+*******************************************SVM***********************************
+
+```{r}
+
+
+library(e1071)
+
+# Fit the SVM classifier
+svm_model <- svm(
+  formula = stroke ~ .,
+  data = balanced_train_set
+)
+
+```
+
+
+
+```{r}
+
+predictions_svm <- predict(svm_model, newdata = test_set)
+
+```
+
+
+
+```{r}
+
+confusionMatrix(predictions_svm, test_set$stroke)
+
+```
+
+
+```{r}
+
+accuracy <- mean(predictions_svm == test_set$stroke)
+accuracy
+
+```
+

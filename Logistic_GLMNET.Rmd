@@ -1,0 +1,330 @@
+---
+title: "Stroke Prediction"
+output: html_document
+date: "2024-03-16"
+---
+
+```{r}
+#importing the data
+library(tidyverse)
+library(dplyr)
+
+df <- read.csv("healthcare-dataset-stroke-data.csv", na.strings = "N/A")
+head(df)
+```
+
+```{r}
+#simple preprocessing
+#removing id column
+df <- df[, !(names(df) %in% "id")]
+colnames(df)
+```
+
+
+
+```{r}
+df$ever_married = factor(df$ever_married)
+df$work_type = factor(df$work_type)
+df$Residence_type = factor(df$Residence_type)
+df$smoking_status = factor(df$smoking_status)
+```
+
+```{r}
+
+#added later
+df$hypertension <- as.numeric(factor(df$hypertension))
+df$heart_disease <- as.numeric(factor(df$heart_disease))
+
+```
+
+
+
+
+```{r}
+df <- df[df$gender != "Other", ]
+df$gender = factor(df$gender)
+```
+
+
+```{r}
+#removing row with other- only 1 row for that 
+str(df)
+```
+
+
+#checking for NA values 
+```{r}
+
+na_values <- sum(is.na(df))
+na_values_per_column <- colSums(is.na(df))
+na_values_per_column
+```
+#bmi has 201 na values. Check the distribution to see if mean imputation or meadian imputation should be done
+
+```{r}
+library(ggplot2)
+
+
+# Create density plot
+density_plot <- ggplot(df, aes(x = bmi)) +
+  geom_density(fill = "skyblue", color = "blue", alpha = 0.5) +
+  labs(title = "Density Plot of Bmi",
+       x = "bmi",
+       y = "Density")
+
+# Create histogram
+histogram_plot <- ggplot(df, aes(x = bmi)) +
+  geom_histogram(fill = "skyblue", color = "blue", alpha = 0.5, bins = 30) +
+  labs(title = "Histogram of Bmi",
+       x = "bmi",
+       y = "Frequency")
+
+# Display both plots
+print(density_plot)
+print(histogram_plot)
+```
+
+#right skewed so impute with median
+
+```{r}
+median_bmi <- median(df$bmi, na.rm = TRUE)
+df$bmi[is.na(df$bmi)] <- median_bmi
+```
+
+#Descriptive statistics
+```{r}
+summary(df)
+```
+The summary statistics provided represent data on various attributes for a group of individuals, including gender, age, health conditions, marital status, work type, residence type, average glucose level, body mass index (BMI), smoking status, and stroke occurrence.
+
+The dataset consists of 5,109 individuals, with a gender distribution of 2,994 females and 2,115 males; there are no individuals identified as 'Other'. Age in the dataset ranges from 0.08 to 82 years, with a median age of 45 years, indicating a middle-aged population. In terms of health conditions, 9.748% have hypertension, and 5.402% have heart disease.
+
+Regarding marital status, 3,353 individuals are married, while 1,756 are not. Work type categories include children (687 individuals), government jobs (657), never worked (22), private sector jobs (2,924), and self-employed (819). The individuals are almost evenly split between rural (2,513) and urban (2,596) residence types.
+
+The average glucose level in the group is 106.14 mg/dL, with a range from 55.12 to 271.74 mg/dL. The BMI values range from 10.3 to 97.6, with a mean of 28.86, indicating that the average individual is overweight according to WHO standards.
+
+As for smoking status, the dataset includes 884 individuals who formerly smoked, 1,892 who never smoked, 789 who currently smoke, and 1,544 whose smoking status is unknown. Lastly, the prevalence of stroke in this population is 4.874%, which aligns with the dataset's median and mean values being close to 0, suggesting that the majority of individuals have not experienced a stroke.
+
+
+
+#checking the class distribution 
+```{r}
+table(df$stroke)
+```
+
+
+#From all of the above analysis, we can see that the dataset is imbalanced. We will balance the dataset through the process of oversampling. 
+
+```{r}
+prop.table(table(df$stroke))
+```
+# The process of oversampling - SMOTE
+```{r}
+library(ROSE)
+library(caret)
+
+#split the data into training and testing set
+set.seed(25) # for reproducibility
+sample_size <- floor(0.75 * nrow(df)) # 75% for training
+train_indices <- sample(seq_len(nrow(df)), size = sample_size)
+
+train_set <- df[train_indices, ]
+test_set <- df[-train_indices, ]
+```
+
+
+```{r}
+train_set$stroke <- factor(train_set$stroke, levels = c(0, 1))
+test_set$stroke <- factor(test_set$stroke, levels = c(0, 1))
+```
+
+
+```{r}
+balanced_train_set <- ovun.sample(stroke ~ ., data = train_set, method = "over")$data
+```
+
+
+The oversampling methodology report describes the utilization of the ovun.sample() function from the ROSE package in R to address class imbalance in a dataset, focusing particularly on balancing the 'stroke' variable. This approach involves taking the original 'train_set' and applying oversampling to augment the minority class. The function is set with method = "over", directing it to increase the minority class's presence by creating synthetic samples that are statistically similar to existing ones, though not identical. The result is the 'balanced_train_set', a modified version of the original dataset with a better balance between classes, aiming to improve the outcomes of predictive modeling by providing a more equitable data foundation. This method is primarily designed to reduce the skewness in class distribution, thus potentially enhancing the performance of subsequent analyses and model training.
+
+
+******Logistic Regerssion*************
+
+
+#Fitting model with balanced train
+
+```{r}
+X_train <- select(balanced_train_set, -stroke)  # Exclude the response variable
+y_train <- balanced_train_set$stroke  # Directly access the column
+
+# Convert y_train to numeric if it's a factor and not already numeric
+y_train <- as.numeric(as.character(y_train))
+
+
+#standardizing the dataset
+preProcValues <- preProcess(X_train, method = c("center", "scale"))
+X_train <- predict(preProcValues, X_train)
+
+```
+
+```{r}
+# Assuming y_train is a binary outcome and you're fitting a logistic regression model
+# Here, family = "binomial" tells glm() to fit a logistic regression model
+
+# If X_train is a matrix, we need to convert it back to a data frame or similar structure that includes column names
+# This step assumes column names were stored or can be recreated. If X_train was converted to a matrix without
+# preserving column names, adjust as necessary.
+X_train_df <- as.data.frame(X_train) # Convert matrix back to data frame if necessary
+
+# Create a formula for the glm function. This depends on having column names in X_train_df.
+# Assuming column names are present and your features are named appropriately in X_train_df.
+formula <- as.formula(paste("y_train ~", paste(colnames(X_train_df), collapse = " + ")))
+
+# Fit the model
+glm_model <- glm(formula, family = "binomial", data = cbind(X_train_df, y_train = y_train))
+
+# Summary of the model
+summary(glm_model)
+
+```
+
+
+#Preprocessing the test dataset
+
+```{r}
+X_test <- select(test_set, -stroke)  # Exclude the target variable
+y_test <- test_set$stroke  # Access the target column
+
+# Convert y_test to numeric if it's a factor and not already numeric
+y_test <- as.numeric(as.character(y_test))
+
+X_test_df <- as.data.frame(X_test)
+
+X_test_df <- predict(preProcValues, X_test_df)
+```
+
+
+#Calculating the accuracy metrics 
+
+```{r}
+glm_probs <- predict(glm_model, newdata = X_test_df, type = "response")
+predicted_classes <- ifelse(glm_probs > 0.5, 1, 0)
+table(predicted_classes, y_test)
+```
+```{r}
+mean(predicted_classes == y_test)
+```
+
+
+
+#AUC and ROC curves
+
+```{r}
+# Load necessary library
+library(pROC)
+
+# Ensure y_test is in the correct format (needs to be numeric or a factor for pROC)
+# If y_test is not a numeric vector, convert it from factors or characters to numeric
+y_test_numeric <- as.numeric(as.character(unlist(test_set$stroke))) - 1  # Assuming '1' and '0' are your class labels
+
+# Generate the ROC curve
+roc_curve <- roc(y_test_numeric, as.numeric(glm_probs))
+
+# Plot the ROC curve
+plot(roc_curve, main="ROC Curve for Logistic Model")
+abline(a=0, b=1, col="red")  # Adds a reference line for random guessing
+
+```
+
+
+
+******Using regularised Model (glmnet)****************
+
+```{r}
+library(glmnet)
+
+#converting the categorical variables to dummy, that is what glmnet expects 
+
+
+X_train <- select(balanced_train_set, -stroke)  # Exclude the response variable
+y_train <- select(balanced_train_set, stroke) %>% unlist(.)  # Ensure it's a factor if it's not already
+dummyVarsOut = dummyVars(~., data = X_train, fullRank = FALSE)
+X_train = predict(dummyVarsOut, X_train)
+
+#standardize the dataset
+preProcValues <- preProcess(X_train, method = c("center", "scale"))
+X_train <- predict(preProcValues, X_train)
+
+```
+
+```{r}
+#cross validation 10 fold to find the best alpha values
+set.seed(25)
+K = 10
+trainControl = trainControl(method = "cv", number = K)
+tuneGrid = expand.grid('alpha'=c(0,.25,.5,.75,1),'lambda' = seq(00, .001, length.out = 30))
+elasticOut = train(x = X_train, y = y_train,
+method = "glmnet",
+trControl = trainControl, tuneGrid = tuneGrid)
+```
+
+```{r}
+glmnetOut = glmnet(x = X_train, y = y_train, alpha = elasticOut$bestTune$alpha,
+family = 'binomial', standardize = FALSE)
+```
+
+```{r}
+#preporcessing the test dataset
+X_test = select(test_set, -stroke)
+y_test = select(test_set, stroke)
+X_test <- predict(dummyVarsOut, newdata = X_test)
+
+X_test <- predict(preProcValues, X_test)
+```
+
+```{r}
+#making predictions 
+probHatTest = predict(glmnetOut, X_test, s=elasticOut$bestTune$lambda, type = 'response')
+YhatTestGlmnet = ifelse(probHatTest > 0.5, '1', '0')
+```
+
+```{r}
+mean(YhatTestGlmnet == y_test)
+```
+
+```{r}
+y_test <- as.character(unlist(y_test))  # Ensure y_test is in the same format as YhatTestGlmnet for comparison
+confusion_matrix <- table(Predicted = YhatTestGlmnet, Actual = y_test)
+print(confusion_matrix)
+# Ensure both are factors and have the same levels
+YhatTestGlmnet <- factor(YhatTestGlmnet, levels = c('0', '1'))
+y_test <- factor(y_test, levels = c('0', '1'))
+
+# Use confusionMatrix from caret package
+library(caret)
+conf_matrix <- confusionMatrix(YhatTestGlmnet, y_test)
+print(conf_matrix)
+```
+
+
+
+#plot ROC curve and AUC value
+```{r}
+# Load necessary library
+library(pROC)
+
+# Ensure y_test is in the correct format (needs to be numeric or a factor for pROC)
+# If y_test is not a numeric vector, convert it from factors or characters to numeric
+y_test_numeric <- as.numeric(as.character(unlist(y_test))) - 1  # Assuming '1' and '0' are your class labels
+
+# Generate the ROC curve
+roc_curve <- roc(y_test_numeric, as.numeric(probHatTest))
+
+# Plot the ROC curve
+plot(roc_curve, main="ROC Curve for glmnet Model")
+abline(a=0, b=1, col="red")  # Adds a reference line for random guessing
+
+```
+```{r}
+summary(glmnetOut)
+```
+
